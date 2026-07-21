@@ -80,12 +80,14 @@ def eval_answers(chunks: list[Chunk], index, questions: list[Question], top_k: i
     by_id = {c.chunk_id: c for c in chunks}
     answered = correct = faithful = 0
     false_answers = n_unanswerable = 0
+    cited_sections = 0
     for q in questions:
         ranked = _ranked_chunks(index, chunks, q.text, top_k)
         ans = answer_question(q.text, ranked, abstain_below)
         if q.answerable:
             if not ans.abstained:
                 answered += 1
+                cited_sections += sum(len(by_id[c].section_ids) for c in ans.citations)
                 if q.answer and q.answer.lower() in (ans.text or "").lower():
                     correct += 1
                 verdict = check_support(ans.text or "",
@@ -102,6 +104,7 @@ def eval_answers(chunks: list[Chunk], index, questions: list[Question], top_k: i
         "answer_accuracy_when_answered": round(correct / max(answered, 1), 4),
         "faithfulness_when_answered": round(faithful / max(answered, 1), 4),
         "false_answer_rate_on_unanswerable": round(false_answers / max(n_unanswerable, 1), 4),
+        "mean_sections_per_citation": round(cited_sections / max(answered, 1), 2),
     }
 
 
@@ -144,12 +147,16 @@ def run_harness(documents: list[dict], questions: list[Question], cfg: dict,
                                     float(a["support_overlap_threshold"]))
             metrics["answer_accuracy"] = end_task["answer_accuracy_when_answered"]
             metrics["coverage"] = end_task["coverage"]
+            metrics["mean_sections_per_citation"] = end_task["mean_sections_per_citation"]
             report["grid"][f"{chunking}/{retriever}"] = metrics
             # Select the serving config on the end task, not on retrieval
             # metrics: document-level chunking scores perfect recall@1 on
-            # a small corpus while producing the worst answers, because a
-            # whole page is a weak citation and a noisy extraction target.
-            key = (end_task["answer_accuracy_when_answered"], metrics["mrr"])
+            # this corpus yet its citations span whole six-section pages.
+            # Accuracy ties within a rounding point break toward finer
+            # citations, because a citation the reader must scan an entire
+            # page to verify is barely a citation at all.
+            key = (round(end_task["answer_accuracy_when_answered"], 2),
+                   -end_task["mean_sections_per_citation"], metrics["mrr"])
             if best is None or key > best[0]:
                 best = (key, chunking, retriever, chunks, index)
             if mlflow_tracking:
