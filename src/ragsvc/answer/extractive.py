@@ -46,23 +46,37 @@ def split_sentences(text: str) -> list[str]:
 
 def answer_question(question: str, ranked_chunks: list[tuple[Chunk, float]],
                     abstain_below: float) -> Answer:
+    """Confidence is answer-term coverage, not retrieval score.
+
+    The first version gated on retrieval confidence and the measured
+    abstention curve was flat: unanswerable questions about real
+    services kept a 47 to 54 percent false answer rate at every
+    threshold, because the service's page matches strongly whether or
+    not the asked-about attribute exists anywhere. Retrieval score
+    answers "did I find the right page"; it cannot answer "does the
+    page contain this fact". Coverage of the question's content terms
+    by the selected sentence answers the second question, and it is
+    already on a [0, 1] scale, so the gate needs no score calibration
+    across retrievers.
+    """
     if not ranked_chunks:
         return Answer(question, None, (), 0.0, True)
-    top_confidence = ranked_chunks[0][1]
-    if top_confidence < abstain_below:
-        return Answer(question, None, (), top_confidence, True)
 
     q_terms = _content_terms(question)
-    best_sentence, best_chunk, best_score = None, None, -1.0
+    if not q_terms:
+        return Answer(question, None, (), 0.0, True)
+
+    best = None  # (coverage, retrieval_score, sentence, chunk)
     for chunk, retrieval_score in ranked_chunks:
         for sentence in split_sentences(chunk.text):
-            overlap = len(q_terms & _content_terms(sentence))
-            score = overlap + 0.25 * retrieval_score
-            if score > best_score:
-                best_sentence, best_chunk, best_score = sentence, chunk, score
+            coverage = len(q_terms & _content_terms(sentence)) / len(q_terms)
+            key = (coverage, retrieval_score)
+            if best is None or key > best[:2]:
+                best = (coverage, retrieval_score, sentence, chunk)
 
-    if best_sentence is None:
-        return Answer(question, None, (), top_confidence, True)
-    return Answer(question=question, text=best_sentence,
-                  citations=(best_chunk.chunk_id,),
-                  confidence=top_confidence, abstained=False)
+    coverage, _score, sentence, chunk = best
+    if coverage < abstain_below:
+        return Answer(question, None, (), round(coverage, 4), True)
+    return Answer(question=question, text=sentence,
+                  citations=(chunk.chunk_id,),
+                  confidence=round(coverage, 4), abstained=False)

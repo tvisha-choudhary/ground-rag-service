@@ -68,15 +68,11 @@ def eval_retrieval(chunks: list[Chunk], index, questions: list[Question],
             "mrr": round(mrr / n, 4), "n_questions": n}
 
 
-def _normalized_ranked(index, chunks, query, top_k):
-    ranked = index.top_k(query, top_k)
-    if not ranked:
-        return []
-    top = max(ranked[0][1], 1e-9)
-    if isinstance(index, HybridIndex):
-        return [(chunks[i], s) for i, s in ranked]     # already on [0, 1]
-    return [(chunks[i], s / top * min(top / 8.0, 1.0)) for i, s in ranked] \
-        if isinstance(index, BM25Index) else [(chunks[i], max(s, 0.0)) for i, s in ranked]
+def _ranked_chunks(index, chunks, query, top_k):
+    """Retrieval scores are passed through untouched: since the gate
+    moved to answer-term coverage they only break ties between equally
+    covering sentences, so no cross-retriever calibration is needed."""
+    return [(chunks[i], s) for i, s in index.top_k(query, top_k)]
 
 
 def eval_answers(chunks: list[Chunk], index, questions: list[Question], top_k: int,
@@ -85,7 +81,7 @@ def eval_answers(chunks: list[Chunk], index, questions: list[Question], top_k: i
     answered = correct = faithful = 0
     false_answers = n_unanswerable = 0
     for q in questions:
-        ranked = _normalized_ranked(index, chunks, q.text, top_k)
+        ranked = _ranked_chunks(index, chunks, q.text, top_k)
         ans = answer_question(q.text, ranked, abstain_below)
         if q.answerable:
             if not ans.abstained:
@@ -143,8 +139,17 @@ def run_harness(documents: list[dict], questions: list[Question], cfg: dict,
             timings[f"fit_{chunking}_{retriever}"] = round(time.perf_counter() - t0, 3)
             metrics = eval_retrieval(chunks, index, questions, top_k)
             metrics["n_chunks"] = len(chunks)
+            end_task = eval_answers(chunks, index, questions, top_k,
+                                    float(a["abstain_below"]),
+                                    float(a["support_overlap_threshold"]))
+            metrics["answer_accuracy"] = end_task["answer_accuracy_when_answered"]
+            metrics["coverage"] = end_task["coverage"]
             report["grid"][f"{chunking}/{retriever}"] = metrics
-            key = (metrics["mrr"], metrics["recall_at_1"])
+            # Select the serving config on the end task, not on retrieval
+            # metrics: document-level chunking scores perfect recall@1 on
+            # a small corpus while producing the worst answers, because a
+            # whole page is a weak citation and a noisy extraction target.
+            key = (end_task["answer_accuracy_when_answered"], metrics["mrr"])
             if best is None or key > best[0]:
                 best = (key, chunking, retriever, chunks, index)
             if mlflow_tracking:

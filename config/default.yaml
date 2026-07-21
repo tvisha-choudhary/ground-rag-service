@@ -17,7 +17,7 @@ retrieval:
   rrf_k: 60
 
 answer:
-  abstain_below: 0.25
+  abstain_below: 0.5
   support_overlap_threshold: 0.5
 
 artifacts_dir: artifacts
