@@ -113,13 +113,73 @@ def _facts_for_service(rng: np.random.Generator, name: str) -> list[Fact]:
     return facts
 
 
+BOILERPLATE = {
+    "overview": ["This page follows the standard handbook template.",
+                 "Ownership and escalation details live in the service catalog.",
+                 "Architecture diagrams are attached to the design review."],
+    "deployment": ["Deployments follow the standard release pipeline with canary "
+                   "analysis before full rollout.",
+                   "Rollbacks use the previous immutable image tag.",
+                   "Config changes ship through the same pipeline as code."],
+    "oncall": ["Runbooks are linked from every alert.",
+               "Sev1 incidents page the incident commander rotation.",
+               "Alert thresholds are reviewed after every incident."],
+    "limits": ["Load tests run before every capacity change.",
+               "Clients should implement exponential backoff on 429 responses.",
+               "Quota increases require a capacity review."],
+    "security": ["Access follows least privilege and quarterly review.",
+                 "Secrets never appear in logs or environment dumps.",
+                 "Dependency scanning runs in the build pipeline."],
+    "storage": ["Schema changes require a migration review.",
+                "Restore drills run quarterly against the latest backup.",
+                "Data classification is documented in the retention policy."],
+}
+
+CROSS_REFS = [
+    "Requests typically arrive via {other} before reaching {name}.",
+    "Coordinate maintenance windows with the {other} team.",
+    "{name} sits upstream of {other} in the request path.",
+    "Dashboards for {name} and {other} share the same folder.",
+]
+
+
+def _section_text(rng: np.random.Generator, name: str, fact_sentence: str,
+                  section_id: str, other_names: list[str]) -> str:
+    """A realistic section: the fact, surrounded by shared boilerplate and
+    cross references that mention other services by name. The cross
+    references carry no attribute values, so ground truth stays unique,
+    but they inject other entities into every page, which is what makes
+    entity matching insufficient and retrieval genuinely hard."""
+    extras = list(rng.choice(BOILERPLATE[section_id],
+                             size=min(2, len(BOILERPLATE[section_id])), replace=False))
+    others = rng.choice(len(other_names), size=2, replace=False)
+    cross = str(rng.choice(CROSS_REFS)).format(
+        name=name, other=other_names[int(others[0])])
+    sentences = [fact_sentence] + extras + [cross]
+    order = rng.permutation(len(sentences))
+    # keep the fact sentence findable anywhere in the section, not always first
+    return " ".join(sentences[i] for i in order)
+
+
 QUESTION_TEMPLATES = {
-    "language": "What language is {name} written in?",
-    "region": "What is the primary deployment region for {name}?",
-    "rotation": "How often does the oncall rotation for {name} change?",
-    "rate_limit": "What is the rate limit for {name}?",
-    "auth": "How do clients authenticate to {name}?",
-    "datastore": "Where does {name} store its state?",
+    "language": ["What language is {name} written in?",
+                 "Which programming language powers {name}?",
+                 "What is {name} implemented in?"],
+    "region": ["What is the primary deployment region for {name}?",
+               "Which cloud region hosts {name}?",
+               "Where does {name} primarily run?"],
+    "rotation": ["How often does the oncall rotation for {name} change?",
+                 "What is the oncall cadence for {name}?",
+                 "How frequently does {name} rotate its pager duty?"],
+    "rate_limit": ["What is the rate limit for {name}?",
+                   "How many requests per second can {name} accept?",
+                   "What throughput is {name} capped at?"],
+    "auth": ["How do clients authenticate to {name}?",
+             "What auth mechanism does {name} require?",
+             "How is access to {name} verified?"],
+    "datastore": ["Where does {name} store its state?",
+                  "Which database backs {name}?",
+                  "What does {name} persist its data in?"],
 }
 
 UNANSWERABLE_ATTRS = [
@@ -152,10 +212,13 @@ def generate_corpus(n_services: int, sections_per_doc: int, hard_negative_rate: 
     for name in names:
         facts = _facts_for_service(rng, name)[:sections_per_doc]
         all_facts.extend(facts)
+        other_names = [n for n in names if n != name]
         documents.append({
             "doc_id": f"doc-{name}",
             "title": f"{name} service handbook",
-            "sections": [{"section_id": f.section_id, "text": f.sentence}
+            "sections": [{"section_id": f.section_id,
+                          "text": _section_text(rng, name, f.sentence,
+                                                f.section_id, other_names)}
                          for f in facts],
         })
 
@@ -168,9 +231,10 @@ def generate_corpus(n_services: int, sections_per_doc: int, hard_negative_rate: 
         fact = fact_by_key.get((f"doc-{name}", attribute))
         if fact is None:
             continue
+        template = str(rng.choice(QUESTION_TEMPLATES[attribute]))
         questions.append(Question(
             question_id=f"q{qid:04d}",
-            text=QUESTION_TEMPLATES[attribute].format(name=name),
+            text=template.format(name=name),
             answerable=True, doc_id=fact.doc_id, section_id=fact.section_id,
             answer=fact.value))
         qid += 1
@@ -180,7 +244,8 @@ def generate_corpus(n_services: int, sections_per_doc: int, hard_negative_rate: 
     for _ in range(n_unanswerable):
         if rng.random() < 0.5 and absent:
             name = str(rng.choice(absent))       # service does not exist
-            template = str(rng.choice(list(QUESTION_TEMPLATES.values())))
+            attribute = str(rng.choice(list(QUESTION_TEMPLATES)))
+            template = str(rng.choice(QUESTION_TEMPLATES[attribute]))
         else:
             name = str(rng.choice(target_names))  # attribute never documented
             template = str(rng.choice(UNANSWERABLE_ATTRS))
