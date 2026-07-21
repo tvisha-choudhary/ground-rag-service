@@ -1,0 +1,23 @@
+corpus:
+  n_services: 40
+  sections_per_doc: 6
+  hard_negative_rate: 0.35
+  n_answerable: 300
+  n_unanswerable: 100
+  seed: 42
+  output_dir: data/generated
+
+chunking:
+  fixed_size_words: 120
+  fixed_overlap_words: 30
+
+retrieval:
+  top_k: 5
+  lsa_dims: 256
+  rrf_k: 60
+
+answer:
+  abstain_below: 0.25
+  support_overlap_threshold: 0.5
+
+artifacts_dir: artifacts

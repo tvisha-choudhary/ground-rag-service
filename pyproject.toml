@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ragsvc"
+version = "0.1.0"
+description = "Grounded RAG service with a measured retrieval evaluation grid, citation gate, and abstention curve"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.26",
+    "scikit-learn>=1.4",
+    "pyyaml>=6.0",
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pytest-cov>=4.1", "ruff>=0.4", "httpx>=0.27"]
+tracking = ["mlflow>=2.12"]
+anthropic = ["anthropic>=0.25"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
