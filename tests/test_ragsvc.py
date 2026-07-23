@@ -187,6 +187,66 @@ class TestFaithfulness:
         assert not check_support("answer", []).supported
 
 
+class TestAnthropicProvider:
+    """The provider's citation parsing and NOT_FOUND protocol are real
+    logic worth pinning; a fake client stands in for the API, and the
+    integration path stays honest: no README metric depends on it."""
+
+    CHUNKS = [
+        (Chunk("doc-a:limits", "doc-a", ("limits",),
+               "The rate limit for amber-vault is 500 requests per second."), 0.9),
+        (Chunk("doc-a:overview", "doc-a", ("overview",),
+               "amber-vault is written in Go."), 0.6),
+    ]
+
+    @staticmethod
+    def _provider_with_reply(monkeypatch, reply_text):
+        import sys
+        import types
+
+        class FakeMessages:
+            def create(self, **kwargs):
+                block = types.SimpleNamespace(text=reply_text)
+                return types.SimpleNamespace(content=[block])
+
+        class FakeAnthropic:
+            def __init__(self):
+                self.messages = FakeMessages()
+
+        fake_module = types.SimpleNamespace(Anthropic=FakeAnthropic)
+        monkeypatch.setitem(sys.modules, "anthropic", fake_module)
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+        from ragsvc.answer.providers import AnthropicProvider
+        return AnthropicProvider()
+
+    def test_requires_api_key(self, monkeypatch):
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        from ragsvc.answer.providers import AnthropicProvider
+        with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY"):
+            AnthropicProvider()
+
+    def test_not_found_becomes_abstention(self, monkeypatch):
+        provider = self._provider_with_reply(monkeypatch, "NOT_FOUND")
+        ans = provider.answer("Which CDN fronts amber-vault?", self.CHUNKS, 0.0)
+        assert ans.abstained and ans.text is None
+
+    def test_citations_parsed_and_stripped(self, monkeypatch):
+        provider = self._provider_with_reply(
+            monkeypatch,
+            "The rate limit is 500 requests per second. [doc-a:limits]")
+        ans = provider.answer("What is the rate limit for amber-vault?",
+                              self.CHUNKS, 0.0)
+        assert not ans.abstained
+        assert ans.citations == ("doc-a:limits",)
+        assert "[doc-a:limits]" not in ans.text
+        assert "500 requests per second" in ans.text
+
+    def test_gate_applies_before_the_api_call(self, monkeypatch):
+        provider = self._provider_with_reply(monkeypatch, "irrelevant")
+        ans = provider.answer("anything", [], abstain_below=0.5)
+        assert ans.abstained and ans.confidence == 0.0
+
+
 class TestHarness:
     def test_hit_criterion(self, small_corpus):
         docs, _, questions = small_corpus
