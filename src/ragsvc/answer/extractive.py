@@ -36,8 +36,33 @@ class Answer:
     abstained: bool
 
 
+def _stem(token: str) -> str:
+    """Symmetric suffix stemming: both the question and the candidate
+    sentences pass through the same mapping, so the stem only needs to
+    be consistent, not linguistically correct. Motivating miss, caught
+    by the service roundtrip test: 'Where does X primarily run?' scored
+    the boilerplate 'run the standard release pipeline' above the gold
+    'primary deployment region' sentence because primarily and primary
+    do not string-match. Hyphenated entity names are never stemmed."""
+    if "-" in token:
+        return token
+    if token.endswith("ies") and len(token) > 4:
+        return token[:-3] + "y"
+    if token.endswith("ily") and len(token) > 4:
+        return token[:-3] + "y"
+    if token.endswith("ing") and len(token) > 5:
+        return token[:-3]
+    if token.endswith("ed") and len(token) > 4:
+        return token[:-2]
+    if token.endswith("ly") and len(token) > 4:
+        return token[:-2]
+    if token.endswith("s") and len(token) > 3 and not token.endswith("ss"):
+        return token[:-1]
+    return token
+
+
 def _content_terms(text: str) -> set[str]:
-    return {t for t in tokenize(text) if t not in STOPWORDS}
+    return {_stem(t) for t in tokenize(text) if t not in STOPWORDS}
 
 
 def split_sentences(text: str) -> list[str]:
