@@ -186,7 +186,15 @@ def run_harness(documents: list[dict], questions: list[Question], cfg: dict,
 
 
 def _log_mlflow(chunking: str, retriever: str, metrics: dict) -> None:
+    import os
+
     import mlflow
+
+    # MLflow 3.14 put the ./mlruns file store into maintenance mode; a
+    # local sqlite backend is the supported zero-infrastructure default.
+    # MLFLOW_TRACKING_URI, when set, wins.
+    if not os.environ.get("MLFLOW_TRACKING_URI"):
+        mlflow.set_tracking_uri("sqlite:///mlflow.db")
 
     with mlflow.start_run(run_name=f"{chunking}-{retriever}"):
         mlflow.log_params({"chunking": chunking, "retriever": retriever})

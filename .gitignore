@@ -10,3 +10,4 @@ mlruns/
 *.egg-info/
 dist/
 .env
+mlflow.db

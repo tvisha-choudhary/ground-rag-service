@@ -333,7 +333,9 @@ class TestMLflowTracking:
     def test_grid_runs_logged(self, tmp_path, monkeypatch):
         mlflow = pytest.importorskip("mlflow")
         monkeypatch.chdir(tmp_path)
-        mlflow.set_tracking_uri(f"file:{tmp_path}/mlruns")
+        uri = f"sqlite:///{tmp_path}/mlflow.db"
+        monkeypatch.setenv("MLFLOW_TRACKING_URI", uri)
+        mlflow.set_tracking_uri(uri)
         from ragsvc.eval.harness import _log_mlflow
         _log_mlflow("section", "bm25", {"recall_at_1": 0.5, "mrr": 0.6,
                                         "n_chunks": 10})
