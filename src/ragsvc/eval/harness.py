@@ -130,7 +130,9 @@ def run_harness(documents: list[dict], questions: list[Question], cfg: dict,
 
     report: dict = {"grid": {}, "answers": {}, "abstention_curve": []}
     timings: dict[str, float] = {}
+    budget = float(r.get("max_sections_per_citation", 1e9))
     best = None
+    unconstrained = None
     for chunking in CHUNKINGS:
         chunks = build_chunks(chunking, documents,
                               int(c["fixed_size_words"]), int(c["fixed_overlap_words"]))
@@ -149,21 +151,30 @@ def run_harness(documents: list[dict], questions: list[Question], cfg: dict,
             metrics["coverage"] = end_task["coverage"]
             metrics["mean_sections_per_citation"] = end_task["mean_sections_per_citation"]
             report["grid"][f"{chunking}/{retriever}"] = metrics
-            # Select the serving config on the end task, not on retrieval
-            # metrics: document-level chunking scores perfect recall@1 on
-            # this corpus yet its citations span whole six-section pages.
-            # Accuracy ties within a rounding point break toward finer
-            # citations, because a citation the reader must scan an entire
-            # page to verify is barely a citation at all.
+            # Serving-config selection is constrained optimization: max
+            # end-task accuracy subject to the citation budget. On this
+            # corpus, document-level chunking wins unconstrained accuracy
+            # (queries name their service, so finding the page is free)
+            # while citing whole six-section pages; the budget encodes
+            # the product bar that citations must be quickly verifiable.
+            # The unconstrained winner is recorded beside the selection.
             key = (round(end_task["answer_accuracy_when_answered"], 2),
                    -end_task["mean_sections_per_citation"], metrics["mrr"])
-            if best is None or key > best[0]:
-                best = (key, chunking, retriever, chunks, index)
+            if unconstrained is None or key > unconstrained[0]:
+                unconstrained = (key, chunking, retriever)
+            if end_task["mean_sections_per_citation"] <= budget:
+                if best is None or key > best[0]:
+                    best = (key, chunking, retriever, chunks, index)
             if mlflow_tracking:
                 _log_mlflow(chunking, retriever, metrics)
 
+    if best is None:
+        raise RuntimeError("no grid cell satisfies max_sections_per_citation")
     _key, chunking, retriever, chunks, index = best
-    report["best_config"] = {"chunking": chunking, "retriever": retriever}
+    report["best_config"] = {"chunking": chunking, "retriever": retriever,
+                             "citation_budget": budget}
+    report["unconstrained_best"] = {"chunking": unconstrained[1],
+                                    "retriever": unconstrained[2]}
     report["answers"] = eval_answers(chunks, index, questions, top_k,
                                      float(a["abstain_below"]),
                                      float(a["support_overlap_threshold"]))

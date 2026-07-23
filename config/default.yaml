@@ -1,5 +1,5 @@
 corpus:
-  n_services: 40
+  n_services: 120
   sections_per_doc: 6
   hard_negative_rate: 0.35
   n_answerable: 300
@@ -13,6 +13,10 @@ chunking:
 
 retrieval:
   top_k: 5
+  # Product constraint on serving-config selection: a citation the
+  # reviewer must scan more than this many sections to verify fails
+  # the verifiability bar, whatever its accuracy.
+  max_sections_per_citation: 4
   lsa_dims: 256
   rrf_k: 60
 
