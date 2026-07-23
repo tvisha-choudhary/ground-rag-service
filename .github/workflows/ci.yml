@@ -1,0 +1,36 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: pip install -e ".[dev]"
+      - name: Lint
+        run: ruff check src tests benchmark
+      - name: Tests with coverage gate
+        run: pytest -q --cov=ragsvc --cov-fail-under=85
+      - name: Pipeline smoke run
+        run: python -m ragsvc.pipeline
+
+  test-tracking:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install with tracking extra
+        run: pip install -e ".[dev,tracking]"
+      - name: Tracking tests
+        run: pytest tests/test_ragsvc.py::TestMLflowTracking -q

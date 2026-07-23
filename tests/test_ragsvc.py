@@ -6,7 +6,6 @@ attribute does not, and the faithfulness gate rejecting an answer that
 asserts a value its citation does not contain.
 """
 
-import numpy as np
 import pytest
 
 from ragsvc.answer.extractive import Answer, answer_question, split_sentences
