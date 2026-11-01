@@ -15,6 +15,7 @@ import logging
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
 from ragsvc.answer.faithfulness import check_support
@@ -70,6 +71,14 @@ def build_app(config_path: str | None = None) -> FastAPI:
     support_threshold = float(a["support_overlap_threshold"])
 
     app = FastAPI(title="grounded-rag-service", version="0.1.0")
+
+    ui_path = Path(__file__).parent / "index.html"
+
+    @app.get("/", response_class=HTMLResponse)
+    def ui() -> str:
+        if ui_path.exists():
+            return ui_path.read_text(encoding="utf-8")
+        return "<h1>Grounded RAG Service</h1><p>Visit <a href='/docs'>/docs</a></p>"
 
     @app.get("/health")
     def health() -> dict:
